@@ -37,56 +37,191 @@ export default function App() {
   const [stockLogs, setStockLogs] = useState<StockLog[]>([]);
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [isCloud, setIsCloud] = useState(false);
+  const [isLoadingCloud, setIsLoadingCloud] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<'none' | 'loading' | 'success' | 'failed'>('none');
 
   // NAVIGATION & VIEW SWITCHER STATE
   const [activeTab, setActiveTab] = useState<'dashboard' | 'kasir' | 'produk' | 'keuangan' | 'setelan'>('dashboard');
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [selectedTxForReceipt, setSelectedTxForReceipt] = useState<Transaction | null>(null);
 
-  // FIRST TIME STORAGE CHECK & LOAD
+  // FIRST TIME STORAGE CHECK & LOAD (FULLY INTEGRATED TO RECONCILE WITH CLOUD BACKEND AT ONCE)
   useEffect(() => {
-    setIsCloud(isSupabaseConfigured());
-    const storedProducts = localStorage.getItem('quips_products');
-    const storedTransactions = localStorage.getItem('quips_transactions');
-    const storedExpenses = localStorage.getItem('quips_expenses');
-    const storedStockLogs = localStorage.getItem('quips_stock_logs');
-    const storedSettings = localStorage.getItem('quips_settings');
+    const isConfig = isSupabaseConfigured();
+    setIsCloud(isConfig);
 
-    if (storedProducts) {
-      setProducts(JSON.parse(storedProducts));
-    } else {
-      setProducts(INITIAL_PRODUCTS);
-      localStorage.setItem('quips_products', JSON.stringify(INITIAL_PRODUCTS));
-    }
+    const initializeData = async () => {
+      // Step 1: Immediately render cached local data so the application is instantly interactive
+      const storedProducts = localStorage.getItem('quips_products');
+      const storedTransactions = localStorage.getItem('quips_transactions');
+      const storedExpenses = localStorage.getItem('quips_expenses');
+      const storedStockLogs = localStorage.getItem('quips_stock_logs');
+      const storedSettings = localStorage.getItem('quips_settings');
 
-    if (storedTransactions) {
-      setTransactions(JSON.parse(storedTransactions));
-    } else {
-      const gMock = generateMockTransactions();
-      setTransactions(gMock);
-      localStorage.setItem('quips_transactions', JSON.stringify(gMock));
-    }
+      if (storedProducts) setProducts(JSON.parse(storedProducts));
+      else {
+        setProducts(INITIAL_PRODUCTS);
+        localStorage.setItem('quips_products', JSON.stringify(INITIAL_PRODUCTS));
+      }
 
-    if (storedExpenses) {
-      setExpenses(JSON.parse(storedExpenses));
-    } else {
-      setExpenses(INITIAL_EXPENSES);
-      localStorage.setItem('quips_expenses', JSON.stringify(INITIAL_EXPENSES));
-    }
+      if (storedTransactions) setTransactions(JSON.parse(storedTransactions));
+      else {
+        const gMock = generateMockTransactions();
+        setTransactions(gMock);
+        localStorage.setItem('quips_transactions', JSON.stringify(gMock));
+      }
 
-    if (storedStockLogs) {
-      setStockLogs(JSON.parse(storedStockLogs));
-    } else {
-      setStockLogs(INITIAL_STOCK_LOGS);
-      localStorage.setItem('quips_stock_logs', JSON.stringify(INITIAL_STOCK_LOGS));
-    }
+      if (storedExpenses) setExpenses(JSON.parse(storedExpenses));
+      else {
+        setExpenses(INITIAL_EXPENSES);
+        localStorage.setItem('quips_expenses', JSON.stringify(INITIAL_EXPENSES));
+      }
 
-    if (storedSettings) {
-      setSettings(JSON.parse(storedSettings));
-    } else {
-      setSettings(DEFAULT_SETTINGS);
-      localStorage.setItem('quips_settings', JSON.stringify(DEFAULT_SETTINGS));
-    }
+      if (storedStockLogs) setStockLogs(JSON.parse(storedStockLogs));
+      else {
+        setStockLogs(INITIAL_STOCK_LOGS);
+        localStorage.setItem('quips_stock_logs', JSON.stringify(INITIAL_STOCK_LOGS));
+      }
+
+      if (storedSettings) setSettings(JSON.parse(storedSettings));
+      else {
+        setSettings(DEFAULT_SETTINGS);
+        localStorage.setItem('quips_settings', JSON.stringify(DEFAULT_SETTINGS));
+      }
+
+      // Step 2: Reconcile silently with Live Database in real-time
+      if (isConfig) {
+        const supabase = getSupabase();
+        if (supabase) {
+          setIsLoadingCloud(true);
+          setCloudStatus('loading');
+          try {
+            const [
+              { data: dbProducts, error: prodErr },
+              { data: dbTransactions, error: txErr },
+              { data: dbExpenses, error: expErr },
+              { data: dbStockLogs, error: logErr },
+              { data: dbSettings, error: setErr }
+            ] = await Promise.all([
+              supabase.from('products').select('*'),
+              supabase.from('transactions').select('*'),
+              supabase.from('expenses').select('*'),
+              supabase.from('stock_logs').select('*'),
+              supabase.from('store_settings').select('*')
+            ]);
+
+            // If some queries failed because of schema relations not being made, abort silently to allow user to make SQL tables
+            if (prodErr && (prodErr.code === '42P01' || prodErr.message.includes('relation'))) throw prodErr;
+            if (txErr && (txErr.code === '42P01' || txErr.message.includes('relation'))) throw txErr;
+
+            // Load Products
+            if (dbProducts && dbProducts.length > 0) {
+              const formattedProducts: Product[] = dbProducts.map(p => ({
+                id: p.id,
+                name: p.name,
+                category: p.category || '',
+                price: Number(p.price),
+                costPrice: Number(p.costPrice),
+                stock: Number(p.stock),
+                minStock: Number(p.minStock),
+                unit: p.unit || 'pcs',
+                scentType: p.scentType || '',
+                popularity: Number(p.popularity || 0)
+              }));
+              setProducts(formattedProducts);
+              localStorage.setItem('quips_products', JSON.stringify(formattedProducts));
+            }
+
+            // Load Transactions (Parse structural custom nested cart item models)
+            if (dbTransactions && dbTransactions.length > 0) {
+              const formattedTransactions: Transaction[] = dbTransactions.map(t => {
+                let parsedItems = [];
+                try {
+                  parsedItems = typeof t.items === 'string' ? JSON.parse(t.items) : t.items;
+                } catch {
+                  parsedItems = [];
+                }
+                return {
+                  id: t.id,
+                  customerName: t.customerName,
+                  customerWhatsApp: t.customerWhatsApp || '',
+                  date: t.date,
+                  items: parsedItems,
+                  subtotal: Number(t.subtotal),
+                  discount: Number(t.discount),
+                  tax: Number(t.tax),
+                  total: Number(t.total),
+                  profit: Number(t.profit),
+                  paymentMethod: t.paymentMethod,
+                  notes: t.notes || ''
+                };
+              });
+              // Sort by date newest first
+              formattedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              setTransactions(formattedTransactions);
+              localStorage.setItem('quips_transactions', JSON.stringify(formattedTransactions));
+            }
+
+            // Load Expenses
+            if (dbExpenses && dbExpenses.length > 0) {
+              const formattedExpenses: Expense[] = dbExpenses.map(e => ({
+                id: e.id,
+                description: e.description,
+                amount: Number(e.amount),
+                category: e.category || 'Lainnya',
+                date: e.date,
+                paymentMethod: e.paymentMethod
+              }));
+              formattedExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              setExpenses(formattedExpenses);
+              localStorage.setItem('quips_expenses', JSON.stringify(formattedExpenses));
+            }
+
+            // Load Stock Logs
+            if (dbStockLogs && dbStockLogs.length > 0) {
+              const formattedStockLogs: StockLog[] = dbStockLogs.map(l => ({
+                id: l.id,
+                productId: l.productId,
+                productName: l.productName,
+                type: l.type as 'In' | 'Out',
+                quantity: Number(l.quantity),
+                date: l.date,
+                note: l.note || ''
+              }));
+              formattedStockLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              setStockLogs(formattedStockLogs);
+              localStorage.setItem('quips_stock_logs', JSON.stringify(formattedStockLogs));
+            }
+
+            // Load Settings
+            if (dbSettings && dbSettings.length > 0) {
+              const localSettings = dbSettings.find(s => s.id === 'default') || dbSettings[0];
+              if (localSettings) {
+                const formattedSettings: StoreSettings = {
+                  brandName: localSettings.brandName,
+                  phone: localSettings.phone || '',
+                  address: localSettings.address || '',
+                  receiptHeader: localSettings.receiptHeader || '',
+                  receiptFooter: localSettings.receiptFooter || '',
+                  currency: localSettings.currency || 'Rp'
+                };
+                setSettings(formattedSettings);
+                localStorage.setItem('quips_settings', JSON.stringify(formattedSettings));
+              }
+            }
+
+            setCloudStatus('success');
+          } catch (error) {
+            console.warn('Silent cloud initialization catch block fallback:', error);
+            setCloudStatus('failed');
+          } finally {
+            setIsLoadingCloud(false);
+          }
+        }
+      }
+    };
+
+    initializeData();
   }, []);
 
   // SILENT BACKGROUND SYNC TRIGGER WITH DEBOUNCE
@@ -449,10 +584,22 @@ export default function App() {
             </span>
             <span className="text-[8px] font-bold text-[#E5D1D0]">•</span>
             {isCloud ? (
-              <span className="inline-flex items-center gap-1 text-[8px] text-emerald-600 bg-emerald-50/70 border border-emerald-100 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider scale-95 origin-left">
-                <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                Cloud
-              </span>
+              cloudStatus === 'loading' ? (
+                <span className="inline-flex items-center gap-1 text-[8px] text-amber-600 bg-amber-50/70 border border-amber-100 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider scale-95 origin-left">
+                  <span className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+                  Loading...
+                </span>
+              ) : cloudStatus === 'failed' ? (
+                <span className="inline-flex items-center gap-1 text-[8px] text-rose-650 bg-rose-50/70 border border-rose-100 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider scale-95 origin-left" title="Struktur tabel Supabase belum lengkap. Silakan instal schema di menu Setelan.">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  Cloud Pending SQL
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[8px] text-emerald-600 bg-emerald-50/70 border border-emerald-100 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider scale-95 origin-left">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Cloud Active
+                </span>
+              )
             ) : (
               <span className="inline-flex items-center gap-1 text-[8px] text-[#A58E8E] bg-[#FAF7F6] border border-[#E5D1D0]/70 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider scale-95 origin-left">
                 Local Sandbox

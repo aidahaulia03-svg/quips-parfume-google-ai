@@ -503,7 +503,9 @@ export default function App() {
         });
       if (setErr) throw setErr;
 
+      setCloudStatus('success');
     } catch (err: any) {
+      setCloudStatus('failed');
       console.error('Supabase Sync error:', err);
       throw new Error(err?.message || 'Gagal tersambung ke server database Supabase. Periksa kembali struktur tabel Anda.');
     }

@@ -1,0 +1,6 @@
+{
+  "name": "Quips Perfume Cashier",
+  "description": "Sistem kasir dan manajemen stok estetik bertema feminim untuk bisnis laundry parfum Quips Perfume",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

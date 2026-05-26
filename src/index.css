@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, Cambria, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-editorial-bg: #FAF7F6;
+  --color-editorial-text: #2D2D2D;
+  --color-editorial-primary: #C27D7F;
+  --color-editorial-primary-hover: #b16d6f;
+  --color-editorial-border: #E5D1D0;
+  --color-editorial-blush: #F2E4E4;
+  --color-editorial-blush-light: #F9F0F0;
+  --color-editorial-muted: #A58E8E;
+}
+
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .scrollbar-none {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
+
+/* Print thermal styling helper */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #invoice-paper, #invoice-paper * {
+    visibility: visible;
+  }
+  #invoice-paper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+  .unique-receipt-container {
+    background: white !important;
+    padding: 0 !important;
+  }
+}
+
+/* Custom fade in animation and scale ups */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+

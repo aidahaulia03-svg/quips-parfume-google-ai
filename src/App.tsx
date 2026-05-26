@@ -424,6 +424,7 @@ export default function App() {
             onUpdateSettings={handleUpdateSettings}
             onResetDatabase={handleResetDatabase}
             onReloadMockDatabase={handleReloadMockDatabase}
+            onSyncWithSupabase={handleSyncWithSupabase}
           />
         );
       default:
